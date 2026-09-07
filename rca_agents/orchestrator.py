@@ -18,7 +18,9 @@ Produce a ranked list of root-cause hypotheses. Rules:
 - Rank hypotheses by how well the evidence supports them, most likely first.
 - If evidence is thin, say so plainly rather than fabricating a confident answer.
 
-Respond ONLY with JSON matching this schema:
+Respond with ONLY the JSON object below — no preamble, no explanation, no markdown code \
+fences, nothing before or after it. Your entire response must be parseable by json.loads().
+Schema:
 {
   "hypotheses": [
     {"claim": str, "confidence": float (0-1), "evidence_source_ids": [str, ...]}
