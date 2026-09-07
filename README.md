@@ -11,20 +11,41 @@ Engineers diagnosing an issue often have to manually stitch together evidence sp
 ## Architecture
 
 ```
-                     +-----------------+
-                     |   Orchestrator   |
-                     +--------+---------+
-        +----------+----------+----------+----------+
-        |          |          |          |          |
-     Ticket      Code       Log        Doc        (extendable)
-     Agent       Agent      Agent      Agent
+  GitHub issue
+       |
+       v
++-------------------------------------------------------------+
+|                      specialist agents                      |
+|                                                               |
+|   Ticket Agent      Code Agent      Log Agent      Doc Agent |
+|   similar past       source files    error/log       README, |
+|   issues via         via stack       snippets +      docs    |
+|   embedding          trace / query    commit signals  folder |
+|   search                                                     |
++-------------------------------------------------------------+
+       |               |               |               |
+       +-------+-------+-------+-------+-------+-------+
+                       |
+                       v
+             each agent returns EvidenceItem[]
+             (source_type, source_id, content, score)
+                       |
+                       v
+              +------------------+
+              |   Orchestrator   |
+              |  (LLM + prompt)  |
+              +------------------+
+                       |
+                       v
+        ranked root-cause hypotheses, each claim
+        citing the evidence source_id it relies on
 ```
 
 - **Ticket Agent** retrieves similar past issues and defects via embedding search over issue history
 - **Code Agent** retrieves relevant source files or functions given an error message or stack trace
 - **Log Agent** parses CI/build logs and commit history for anomaly patterns tied to the issue
 - **Doc Agent** retrieves relevant sections from project documentation
-- **Orchestrator** combines agent outputs into a ranked, cited root-cause hypothesis, with every claim linked back to its supporting evidence
+- **Orchestrator** collects all agent evidence, prompts the LLM to rank root-cause hypotheses, and rejects any citation that doesn't map back to real retrieved evidence
 
 ## Data Sources
 
@@ -108,6 +129,57 @@ python run_pipeline.py --issue psf/requests#7605
 ```
 
 This prints a summary from each of the four agents, followed by a ranked list of hypotheses, each with a confidence score and the evidence source IDs (file paths, issue numbers, commit SHAs) that support it.
+
+Actual output against `psf/requests#7605` ("Cookies are not sent when the URL contains credentials"):
+
+```
+Investigating psf/requests#7605 ...
+ticket_agent: Found 2 similar historical issue(s).
+code_agent: Found 3 candidate source file(s).
+log_agent: Extracted 3 log/commit signal(s).
+doc_agent: Found 4 relevant documentation section(s).
+
+#1 hypothesis
+The issue is caused by the fact that the URL with credentials is not properly
+handled by the cookie matching logic.
+Confidence: 0.90
+Evidence:
+  - src/requests/models.py
+  - src/requests/sessions.py
+
+#2 hypothesis
+The issue is caused by the fact that the cookie matching logic is not
+properly handling the userinfo component of the URL.
+Confidence: 0.80
+Evidence:
+  (none)
+
+#3 hypothesis
+The issue is caused by a bug in the requests library that is not properly
+sending cookies when the URL contains credentials.
+Confidence: 0.70
+Evidence:
+  - src/requests/models.py
+  - src/requests/sessions.py
+
+#4 hypothesis
+The issue is caused by a configuration issue with the requests library that
+is not properly sending cookies when the URL contains credentials.
+Confidence: 0.60
+Evidence:
+  - src/requests/models.py
+  - src/requests/sessions.py
+
+#5 hypothesis
+The issue is caused by a problem with the requests library's handling of
+HTTP redirects.
+Confidence: 0.50
+Evidence:
+  - commit-d38495c
+  - commit-6f205ff
+```
+
+The top hypothesis is correct: the real fix for this issue was in the cookie-matching logic in `sessions.py`/`models.py`. Note hypotheses #1, #3, and #4 restate the same claim rather than consolidating, and hypothesis #2 correctly reports "(none)" instead of inventing a citation when it had no real evidence to point to. See Known Limitations below.
 
 ## Evaluation
 
