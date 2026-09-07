@@ -72,13 +72,12 @@ class Orchestrator:
         return hypotheses, agent_results
 
     def _parse_hypotheses(self, raw: str, all_items: dict[str, EvidenceItem]) -> list[RootCauseHypothesis]:
-        text = raw.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            text = text.split("\n", 1)[-1] if text.lower().startswith("json") else text
+        text = self._extract_json_object(raw)
 
         try:
-            parsed = json.loads(text)
+            parsed = json.loads(text) if text is not None else {}
+            if not isinstance(parsed, dict):
+                raise json.JSONDecodeError("not an object", text, 0)
         except json.JSONDecodeError:
             return [
                 RootCauseHypothesis(
@@ -101,3 +100,35 @@ class Orchestrator:
                 )
             )
         return hypotheses
+
+    def _extract_json_object(self, raw: str) -> str | None:
+        """Finds the first balanced {...} block in the text, tolerating leading/
+        trailing prose and markdown code fences around it.
+        """
+        start = raw.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+        for i, ch in enumerate(raw[start:], start=start):
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw[start : i + 1]
+
+        return None
