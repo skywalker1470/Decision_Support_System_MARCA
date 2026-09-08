@@ -14,12 +14,17 @@ class EvalCase(BaseModel):
     fixed_files: list[str]
 
 
-def build_eval_set(source: GithubSource, limit: int = 30) -> list[EvalCase]:
+def build_eval_set(source: GithubSource, limit: int = 30, scan_limit: int = 300) -> list[EvalCase]:
     """Finds closed issues with a linked PR, using the PR's changed files as the
     ground-truth root-cause location.
+
+    Recently-closed issues skew toward feature requests, duplicates, and other
+    closures with no real fix, so a small `limit` against a large, active repo
+    can starve this of cases. `scan_limit` controls how many closed issues get
+    scanned (oldest closures included) to find `limit` usable ones.
     """
     cases: list[EvalCase] = []
-    for issue in source.get_closed_issues(limit=limit * 3):
+    for issue in source.get_closed_issues(limit=scan_limit):
         if not issue.linked_pr_numbers:
             continue
         for pr_number in issue.linked_pr_numbers:

@@ -196,11 +196,25 @@ Run it against a repo's closed-issue history:
 python -m rca_agents.eval.run_eval --repo owner/repo --limit 20
 ```
 
+### Pilot results
+
+A pilot run of 7 held-out cases from `psf/requests` (closed issues with a linked, merged fix PR; ground truth is the set of files that PR changed):
+
+| Metric | Mean |
+|---|---|
+| Correctness (top hypothesis cites a fixed file) | 0.00 |
+| Completeness (fixed file cited anywhere) | 0.405 |
+| Traceability (no fabricated citations) | 1.00 |
+
+The pattern is informative: traceability is perfect (the orchestrator never invented a source_id that wasn't actually retrieved) and completeness is well above zero (the correct file does get retrieved and cited in roughly 40% of cases), but it's rarely ranked as the top hypothesis. In one inspected case (#7442), the true fix touched `_types.py` and `models.py`, and both were retrieved and cited, but the top-ranked hypothesis instead pointed at the topically related `__init__.py`. That points at a specific, fixable weakness: with a single local 8B model, retrieval is doing its job, but the ranking/reasoning step isn't reliably surfacing the right evidence as its top pick. This is n=7, a pilot, not a benchmark; a larger run is the natural next step.
+
 ## Known Limitations
 
 - With a single local 8B model, the orchestrator sometimes produces multiple hypotheses that restate the same underlying claim in slightly different words rather than consolidating them. A dedup/merge pass is a natural next step.
+- Also because of the small local model, the top-ranked hypothesis doesn't always match the actually-fixed file even when that file was retrieved and cited lower down (see Pilot results above). A reranking step or a stronger model would likely help.
 - The log agent has no generic CI-log API to draw from across arbitrary repos, so it works off error text pasted into the issue itself plus recent commit messages as a proxy signal, rather than real CI logs.
 - Retrieval quality depends on `nomic-embed-text` embeddings and a fixed chunking strategy; larger repositories will need smarter chunking or file filtering to stay fast.
+- Building the eval set requires scanning far back through closed-issue history (`scan_limit` in `rca_agents/eval/dataset.py`), since an active repo's most recently closed issues skew toward feature requests and duplicates rather than issues with a clean linked fix PR.
 
 ## Project Status
 
